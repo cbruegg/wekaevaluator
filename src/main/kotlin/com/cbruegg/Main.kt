@@ -13,6 +13,15 @@ import kotlin.concurrent.thread
 
 fun main(args: Array<String>) {
     val input = File(args[0])
+
+    if (input.isDirectory) {
+        input.listFiles().forEach(::evaluate)
+    } else {
+        evaluate(input)
+    }
+}
+
+private fun evaluate(input: File) {
     val data = ConverterUtils.getLoaderForFile(input).apply {
         setSource(input)
     }.dataSet
