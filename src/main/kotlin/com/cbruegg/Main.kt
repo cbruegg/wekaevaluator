@@ -47,7 +47,7 @@ private fun evaluate(input: File) {
         }
     }
     threads.forEach(Thread::join)
-    resultsByModel.values.forEach(::print)
+    resultsByModel.entries.sortedBy { it.key }.map { it.value }.forEach(::print)
 }
 
 fun models() = listOf<Pair<String, Classifier>>(
