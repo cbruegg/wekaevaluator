@@ -22,18 +22,18 @@ fun main(args: Array<String>) {
 }
 
 private fun evaluate(input: File) {
-    val data = ConverterUtils.getLoaderForFile(input).apply {
-        setSource(input)
-    }.dataSet
-    data.setClass(data.attribute("sampleClass"))
-    val eval = Evaluation(data)
-
     println("Now evaluation file $input.")
 
     val resultsByModel = mutableMapOf<String, String>()
     val threads = mutableListOf<Thread>()
     for ((description, model) in models()) {
         threads += thread {
+            val data = ConverterUtils.getLoaderForFile(input).apply {
+                setSource(input)
+            }.dataSet
+            data.setClass(data.attribute("sampleClass"))
+            val eval = Evaluation(data)
+
             model.buildClassifier(data)
             eval.crossValidateModel(model, data, 10, Random(1))
 
@@ -50,12 +50,12 @@ private fun evaluate(input: File) {
     resultsByModel.entries.sortedBy { it.key }.map { it.value }.forEach(::print)
 }
 
+// TODO These models will need some fine-tuning
 fun models() = listOf<Pair<String, Classifier>>(
         "RF" to RandomForest().apply {
-            numExecutionSlots = 1
-            numFeatures = 0
-            seed = 1
+            // -K 0
             numIterations = 100
+            numFeatures = 100
         },
         "J48" to J48(),
         "IB3" to IBk().apply {
