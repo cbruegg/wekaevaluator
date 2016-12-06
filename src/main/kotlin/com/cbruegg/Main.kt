@@ -30,14 +30,14 @@ private fun evaluate(input: File) {
 
     println("Now evaluation file $input.")
 
-    val threadResults = mutableMapOf<Thread, String>()
+    val resultsByModel = mutableMapOf<String, String>()
     val threads = mutableListOf<Thread>()
     for ((description, model) in models()) {
         threads += thread {
             model.buildClassifier(data)
             eval.crossValidateModel(model, data, 10, Random(1))
 
-            threadResults[Thread.currentThread()] = """
+            resultsByModel[description] = """
             |+++ TRAINING $description +++
             |=== Results of $description ===
             |${eval.toSummaryString("", false)}
@@ -47,7 +47,7 @@ private fun evaluate(input: File) {
         }
     }
     threads.forEach(Thread::join)
-    threadResults.values.forEach(::print)
+    resultsByModel.values.forEach(::print)
 }
 
 fun models() = listOf<Pair<String, Classifier>>(
