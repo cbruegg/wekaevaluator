@@ -31,6 +31,7 @@ private fun evaluate(input: File) {
             val data = ConverterUtils.getLoaderForFile(input).apply {
                 setSource(input)
             }.dataSet
+            data.randomize(Random())
             data.setClass(data.attribute("sampleClass"))
             val eval = Evaluation(data)
 
