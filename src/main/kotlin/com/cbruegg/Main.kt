@@ -12,17 +12,24 @@ import java.util.*
 import kotlin.concurrent.thread
 
 fun main(args: Array<String>) {
+    if (args.isEmpty()) {
+        println("Usage: java -jar xxx.jar <trainingset> <optional testset>")
+        println("If no testset is provided, cross validation is used.")
+        return
+    }
+
     val input = File(args[0])
+    val test = if (1 in args.indices) File(args[1]) else null
 
     if (input.isDirectory) {
-        input.listFiles().forEach(::evaluate)
+        input.listFiles().forEach { evaluate(it, test) }
     } else {
-        evaluate(input)
+        evaluate(input, test)
     }
 }
 
-private fun evaluate(input: File) {
-    println("Now evaluation file $input.")
+private fun evaluate(input: File, testFile: File?) {
+    println("Now evaluating file $input.")
 
     val resultsByModel = mutableMapOf<String, String>()
     val threads = mutableListOf<Thread>()
@@ -30,13 +37,24 @@ private fun evaluate(input: File) {
         threads += thread {
             val data = ConverterUtils.getLoaderForFile(input).apply {
                 setSource(input)
-            }.dataSet
-            data.randomize(Random())
-            data.setClass(data.attribute("sampleClass"))
+            }.dataSet.apply {
+                randomize(Random())
+                setClass(attribute("sampleClass"))
+            }
             val eval = Evaluation(data)
 
             model.buildClassifier(data)
-            eval.crossValidateModel(model, data, 10, Random(1))
+            if (testFile == null) {
+                eval.crossValidateModel(model, data, 10, Random(1))
+            } else {
+                val testSet = ConverterUtils.getLoaderForFile(testFile).apply {
+                    setSource(testFile)
+                }.dataSet.apply {
+                    randomize(Random())
+                    setClass(attribute("sampleClass"))
+                }
+                eval.evaluateModel(model, testSet)
+            }
 
             resultsByModel[description] = """
             |+++ TRAINING $description +++
