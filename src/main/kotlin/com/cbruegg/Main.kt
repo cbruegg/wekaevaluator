@@ -22,7 +22,7 @@ fun main(args: Array<String>) {
     val test = if (1 in args.indices) File(args[1]) else null
 
     if (input.isDirectory) {
-        input.listFiles().forEach { evaluate(it, test) }
+        input.listFiles().filter { it.endsWith(".csv") }.forEach { evaluate(it, test) }
     } else {
         evaluate(input, test)
     }
