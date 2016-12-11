@@ -116,12 +116,14 @@ private fun evaluateWithoutUser(data: Instances, model: Classifier, user: String
     val dataCopy = Instances(data)
     dataCopy.withIndex()
             .filter { it.value.stringValue(usernameAttrIndex) == user }
+            .sortedByDescending { it.index }
             .forEach { dataCopy.delete(it.index) }
     dataCopy.deleteAttributeAt(usernameAttrIndex)
 
     val testSet = Instances(data)
     dataCopy.withIndex()
             .filter { it.value.stringValue(usernameAttrIndex) != user }
+            .sortedByDescending { it.index }
             .forEach { dataCopy.delete(it.index) }
     testSet.deleteAttributeAt(usernameAttrIndex)
 
