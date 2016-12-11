@@ -30,7 +30,6 @@ fun main(args: Array<String>) {
     }
 
     val input = File(args[0])
-    val test = if (1 in args.indices) File(args[1]) else null
     val validateMode = if (1 in args.indices) {
         if (args[1] == FLAG_USER_VALIDATION) {
             ValidateMode.UserCrossValidation
@@ -40,7 +39,9 @@ fun main(args: Array<String>) {
     } else ValidateMode.RandomCrossValidation
 
     if (input.isDirectory) {
-        input.listFiles().filter { it.endsWith(".csv") }.forEach { evaluate(it, validateMode) }
+        input.listFiles()
+                .filter { it.absolutePath.endsWith(".csv") }
+                .forEach { evaluate(it, validateMode) }
     } else {
         evaluate(input, validateMode)
     }
@@ -59,15 +60,15 @@ private fun evaluate(input: File, validateMode: ValidateMode) {
                 randomize(Random())
                 setClass(attribute("sampleClass"))
             }
-            val eval = Evaluation(data)
-
             model.buildClassifier(data)
 
             val usernameAttrIndex = data.attribute("username").index()
-            when (validateMode) {
+            val eval = when (validateMode) {
                 is ValidateMode.RandomCrossValidation -> {
                     data.deleteAttributeAt(usernameAttrIndex)
-                    eval.crossValidateModel(model, data, 10, Random(1))
+                    Evaluation(data).apply {
+                        crossValidateModel(model, data, 10, Random(1))
+                    }
                 }
                 is ValidateMode.UserCrossValidation -> {
                     val users = data.attribute("username")
@@ -76,11 +77,10 @@ private fun evaluate(input: File, validateMode: ValidateMode) {
                             .distinct()
                             .filterIsInstance<String>()
                     val bestUser = users.maxBy {
-                        evaluateWithoutUser(data, eval, model, it)
-                        eval.pctCorrect()
+                        evaluateWithoutUser(data, model, it).pctCorrect()
                     } ?: throw IllegalArgumentException("Dataset is empty or contains no users.")
                     // Restore evaluation of best user
-                    evaluateWithoutUser(data, eval, model, bestUser)
+                    evaluateWithoutUser(data, model, bestUser)
                 }
                 is ValidateMode.ValidationAgainst -> {
                     data.deleteAttributeAt(usernameAttrIndex)
@@ -91,7 +91,9 @@ private fun evaluate(input: File, validateMode: ValidateMode) {
                         randomize(Random())
                         setClass(attribute("sampleClass"))
                     }
-                    eval.evaluateModel(model, testSet)
+                    Evaluation(data).apply {
+                        evaluateModel(model, testSet)
+                    }
                 }
             }
 
@@ -108,18 +110,24 @@ private fun evaluate(input: File, validateMode: ValidateMode) {
     resultsByModel.entries.sortedBy { it.key }.map { it.value }.forEach(::print)
 }
 
-private fun evaluateWithoutUser(data: Instances, eval: Evaluation, model: Classifier, user: String) {
+private fun evaluateWithoutUser(data: Instances, model: Classifier, user: String): Evaluation {
     val usernameAttrIndex = data.attribute("username").index()
 
     val dataCopy = Instances(data)
-    dataCopy.removeAll { it.stringValue(usernameAttrIndex) == user }
+    dataCopy.withIndex()
+            .filter { it.value.stringValue(usernameAttrIndex) == user }
+            .forEach { dataCopy.delete(it.index) }
     dataCopy.deleteAttributeAt(usernameAttrIndex)
 
     val testSet = Instances(data)
-    testSet.retainAll { it.stringValue(usernameAttrIndex) == user }
+    dataCopy.withIndex()
+            .filter { it.value.stringValue(usernameAttrIndex) != user }
+            .forEach { dataCopy.delete(it.index) }
     testSet.deleteAttributeAt(usernameAttrIndex)
 
-    eval.evaluateModel(model, testSet)
+    return Evaluation(dataCopy).apply {
+        evaluateModel(model, testSet)
+    }
 }
 
 // TODO These models will need some fine-tuning
