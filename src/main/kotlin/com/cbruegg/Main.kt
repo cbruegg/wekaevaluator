@@ -6,29 +6,47 @@ import weka.classifiers.bayes.NaiveBayes
 import weka.classifiers.lazy.IBk
 import weka.classifiers.trees.J48
 import weka.classifiers.trees.RandomForest
+import weka.core.Instances
 import weka.core.converters.ConverterUtils
 import java.io.File
 import java.util.*
 import kotlin.concurrent.thread
 
+sealed class ValidateMode {
+    object RandomCrossValidation : ValidateMode()
+    object UserCrossValidation : ValidateMode()
+    class ValidationAgainst(val testFile: File) : ValidateMode()
+}
+
+private const val FLAG_USER_VALIDATION = "--uservalidation"
+
 fun main(args: Array<String>) {
     if (args.isEmpty()) {
         println("Usage: java -jar xxx.jar <trainingset> <optional testset>")
         println("If no testset is provided, cross validation is used.")
+        println("OR: java -jar xxx.jar <trainingset> $FLAG_USER_VALIDATION")
+        println("In this case, cross validation will be performed with users being taken out.")
         return
     }
 
     val input = File(args[0])
     val test = if (1 in args.indices) File(args[1]) else null
+    val validateMode = if (1 in args.indices) {
+        if (args[1] == FLAG_USER_VALIDATION) {
+            ValidateMode.UserCrossValidation
+        } else {
+            ValidateMode.ValidationAgainst(File(args[1]))
+        }
+    } else ValidateMode.RandomCrossValidation
 
     if (input.isDirectory) {
-        input.listFiles().filter { it.endsWith(".csv") }.forEach { evaluate(it, test) }
+        input.listFiles().filter { it.endsWith(".csv") }.forEach { evaluate(it, validateMode) }
     } else {
-        evaluate(input, test)
+        evaluate(input, validateMode)
     }
 }
 
-private fun evaluate(input: File, testFile: File?) {
+private fun evaluate(input: File, validateMode: ValidateMode) {
     println("Now evaluating file $input.")
 
     val resultsByModel = mutableMapOf<String, String>()
@@ -44,16 +62,37 @@ private fun evaluate(input: File, testFile: File?) {
             val eval = Evaluation(data)
 
             model.buildClassifier(data)
-            if (testFile == null) {
-                eval.crossValidateModel(model, data, 10, Random(1))
-            } else {
-                val testSet = ConverterUtils.getLoaderForFile(testFile).apply {
-                    setSource(testFile)
-                }.dataSet.apply {
-                    randomize(Random())
-                    setClass(attribute("sampleClass"))
+
+            val usernameAttrIndex = data.attribute("username").index()
+            when (validateMode) {
+                is ValidateMode.RandomCrossValidation -> {
+                    data.deleteAttributeAt(usernameAttrIndex)
+                    eval.crossValidateModel(model, data, 10, Random(1))
                 }
-                eval.evaluateModel(model, testSet)
+                is ValidateMode.UserCrossValidation -> {
+                    val users = data.attribute("username")
+                            .enumerateValues()
+                            .asSequence()
+                            .distinct()
+                            .filterIsInstance<String>()
+                    val bestUser = users.maxBy {
+                        evaluateWithoutUser(data, eval, model, it)
+                        eval.pctCorrect()
+                    } ?: throw IllegalArgumentException("Dataset is empty or contains no users.")
+                    // Restore evaluation of best user
+                    evaluateWithoutUser(data, eval, model, bestUser)
+                }
+                is ValidateMode.ValidationAgainst -> {
+                    data.deleteAttributeAt(usernameAttrIndex)
+                    val testFile = validateMode.testFile
+                    val testSet = ConverterUtils.getLoaderForFile(testFile).apply {
+                        setSource(testFile)
+                    }.dataSet.apply {
+                        randomize(Random())
+                        setClass(attribute("sampleClass"))
+                    }
+                    eval.evaluateModel(model, testSet)
+                }
             }
 
             resultsByModel[description] = """
@@ -67,6 +106,20 @@ private fun evaluate(input: File, testFile: File?) {
     }
     threads.forEach(Thread::join)
     resultsByModel.entries.sortedBy { it.key }.map { it.value }.forEach(::print)
+}
+
+private fun evaluateWithoutUser(data: Instances, eval: Evaluation, model: Classifier, user: String) {
+    val usernameAttrIndex = data.attribute("username").index()
+
+    val dataCopy = Instances(data)
+    dataCopy.removeAll { it.stringValue(usernameAttrIndex) == user }
+    dataCopy.deleteAttributeAt(usernameAttrIndex)
+
+    val testSet = Instances(data)
+    testSet.retainAll { it.stringValue(usernameAttrIndex) == user }
+    testSet.deleteAttributeAt(usernameAttrIndex)
+
+    eval.evaluateModel(model, testSet)
 }
 
 // TODO These models will need some fine-tuning
