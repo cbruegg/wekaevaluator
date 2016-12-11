@@ -54,18 +54,13 @@ private fun evaluate(input: File, validateMode: ValidateMode) {
     val threads = mutableListOf<Thread>()
     for ((description, model) in models()) {
         threads += thread {
-            val data = ConverterUtils.getLoaderForFile(input).apply {
-                setSource(input)
-            }.dataSet.apply {
-                randomize(Random())
-                setClass(attribute("sampleClass"))
-            }
-            model.buildClassifier(data)
+            val data = loadDataFromFile(input)
 
             val usernameAttrIndex = data.attribute("username").index()
             val eval = when (validateMode) {
                 is ValidateMode.RandomCrossValidation -> {
                     data.deleteAttributeAt(usernameAttrIndex)
+                    model.buildClassifier(data)
                     Evaluation(data).apply {
                         crossValidateModel(model, data, 10, Random(1))
                     }
@@ -77,20 +72,17 @@ private fun evaluate(input: File, validateMode: ValidateMode) {
                             .distinct()
                             .filterIsInstance<String>()
                     val bestUser = users.maxBy {
-                        evaluateWithoutUser(data, model, it).pctCorrect()
+                        evaluateWithoutUser(input, model, it).pctCorrect()
                     } ?: throw IllegalArgumentException("Dataset is empty or contains no users.")
                     // Restore evaluation of best user
-                    evaluateWithoutUser(data, model, bestUser)
+                    evaluateWithoutUser(input, model, bestUser)
                 }
                 is ValidateMode.ValidationAgainst -> {
                     data.deleteAttributeAt(usernameAttrIndex)
                     val testFile = validateMode.testFile
-                    val testSet = ConverterUtils.getLoaderForFile(testFile).apply {
-                        setSource(testFile)
-                    }.dataSet.apply {
-                        randomize(Random())
-                        setClass(attribute("sampleClass"))
-                    }
+                    val testSet = loadDataFromFile(testFile)
+                    testSet.deleteAttributeAt(usernameAttrIndex)
+                    model.buildClassifier(data)
                     Evaluation(data).apply {
                         evaluateModel(model, testSet)
                     }
@@ -110,17 +102,28 @@ private fun evaluate(input: File, validateMode: ValidateMode) {
     resultsByModel.entries.sortedBy { it.key }.map { it.value }.forEach(::print)
 }
 
-private fun evaluateWithoutUser(data: Instances, model: Classifier, user: String): Evaluation {
-    val usernameAttrIndex = data.attribute("username").index()
+private fun loadDataFromFile(input: File, classAttr: String = "sampleClass"): Instances {
+    val data = ConverterUtils.getLoaderForFile(input).apply {
+        setSource(input)
+    }.dataSet.apply {
+        randomize(Random())
+        setClass(attribute(classAttr))
+    }
+    return data
+}
 
-    val dataCopy = Instances(data)
+private fun evaluateWithoutUser(input: File, model: Classifier, user: String): Evaluation {
+    val dataCopy = loadDataFromFile(input)
+    val usernameAttrIndex = dataCopy.attribute("username").index()
+
     dataCopy.withIndex()
             .filter { it.value.stringValue(usernameAttrIndex) == user }
             .sortedByDescending { it.index }
             .forEach { dataCopy.delete(it.index) }
     dataCopy.deleteAttributeAt(usernameAttrIndex)
+    model.buildClassifier(dataCopy)
 
-    val testSet = Instances(data)
+    val testSet = loadDataFromFile(input)
     dataCopy.withIndex()
             .filter { it.value.stringValue(usernameAttrIndex) != user }
             .sortedByDescending { it.index }
