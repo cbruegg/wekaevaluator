@@ -40,15 +40,21 @@ fun main(args: Array<String>) {
     } else ValidateMode.RandomCrossValidation
 
     if (input.isDirectory) {
+        val results = Collections.synchronizedMap(mutableMapOf<File, String>())
         input.listFiles()
                 .filter { it.absolutePath.endsWith(".csv") }
-                .forEach { evaluate(it, validateMode) }
+                .map {
+                    thread {
+                        results[it] = evaluate(it, validateMode)
+                    }
+                }.forEach(Thread::join)
+        results.entries.sortedBy { it.key.path }.map { it.value }.forEach(::println)
     } else {
         evaluate(input, validateMode)
     }
 }
 
-private fun evaluate(input: File, validateMode: ValidateMode) {
+private fun evaluate(input: File, validateMode: ValidateMode): String {
     println("Now evaluating file $input.")
 
     val resultsByModel = mutableMapOf<String, String>()
@@ -107,11 +113,11 @@ private fun evaluate(input: File, validateMode: ValidateMode) {
         }
     }
     threads.forEach(Thread::join)
-    resultsByModel.entries.sortedBy {
+    return resultsByModel.entries.sortedBy {
         it.key
     }.map {
         it.value
-    }.forEach(::print)
+    }.joinToString()
 }
 
 fun Instance.numericalValues(): DoubleArray = (0 until numAttributes())
