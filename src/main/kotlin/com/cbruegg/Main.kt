@@ -55,8 +55,6 @@ fun main(args: Array<String>) {
 }
 
 private fun evaluate(input: File, validateMode: ValidateMode): String {
-    println("Now evaluating file $input.")
-
     val resultsByModel = mutableMapOf<String, String>()
     val threads = mutableListOf<Thread>()
     for ((description, model) in models()) {
@@ -117,7 +115,7 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
         it.key
     }.map {
         it.value
-    }.joinToString()
+    }.joinToString(separator = "", prefix = "Now evaluating file $input.\n")
 }
 
 fun Instance.numericalValues(): DoubleArray = (0 until numAttributes())
