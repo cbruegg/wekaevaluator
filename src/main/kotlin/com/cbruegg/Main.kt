@@ -6,6 +6,7 @@ import weka.classifiers.bayes.NaiveBayes
 import weka.classifiers.lazy.IBk
 import weka.classifiers.trees.J48
 import weka.classifiers.trees.RandomForest
+import weka.core.Instance
 import weka.core.Instances
 import weka.core.converters.ConverterUtils
 import java.io.File
@@ -71,11 +72,18 @@ private fun evaluate(input: File, validateMode: ValidateMode) {
                             .asSequence()
                             .distinct()
                             .filterIsInstance<String>()
-                    val bestUser = users.maxBy {
-                        evaluateWithoutUser(input, model, it).pctCorrect()
-                    } ?: throw IllegalArgumentException("Dataset is empty or contains no users.")
-                    // Restore evaluation of best user
-                    evaluateWithoutUser(input, model, bestUser)
+                            .toList()
+                    val userByInstance = data.associate {
+                        Arrays.hashCode(it.numericalValues()) to it.stringValue(usernameAttrIndex)
+                    }
+                    data.deleteAttributeAt(usernameAttrIndex)
+                    model.buildClassifier(data)
+
+                    Evaluation(data).apply {
+                        crossValidateModel(model, data, emptyArray(), Random(1)) {
+                            users.indexOf(userByInstance[Arrays.hashCode(it.numericalValues())]!!)
+                        }
+                    }
                 }
                 is ValidateMode.ValidationAgainst -> {
                     data.deleteAttributeAt(usernameAttrIndex)
@@ -99,8 +107,17 @@ private fun evaluate(input: File, validateMode: ValidateMode) {
         }
     }
     threads.forEach(Thread::join)
-    resultsByModel.entries.sortedBy { it.key }.map { it.value }.forEach(::print)
+    resultsByModel.entries.sortedBy {
+        it.key
+    }.map {
+        it.value
+    }.forEach(::print)
 }
+
+fun Instance.numericalValues(): DoubleArray = (0 until numAttributes())
+        .filter { attribute(it).isNumeric }
+        .map { value(it) }
+        .toDoubleArray()
 
 private fun loadDataFromFile(input: File, classAttr: String = "sampleClass"): Instances {
     val data = ConverterUtils.getLoaderForFile(input).apply {
