@@ -135,29 +135,6 @@ private fun loadDataFromFile(input: File, classAttr: String = "sampleClass"): In
     return data
 }
 
-private fun evaluateWithoutUser(input: File, model: Classifier, user: String): Evaluation {
-    val dataCopy = loadDataFromFile(input)
-    val usernameAttrIndex = dataCopy.attribute("username").index()
-
-    dataCopy.withIndex()
-            .filter { it.value.stringValue(usernameAttrIndex) == user }
-            .sortedByDescending { it.index }
-            .forEach { dataCopy.delete(it.index) }
-    dataCopy.deleteAttributeAt(usernameAttrIndex)
-    model.buildClassifier(dataCopy)
-
-    val testSet = loadDataFromFile(input)
-    dataCopy.withIndex()
-            .filter { it.value.stringValue(usernameAttrIndex) != user }
-            .sortedByDescending { it.index }
-            .forEach { dataCopy.delete(it.index) }
-    testSet.deleteAttributeAt(usernameAttrIndex)
-
-    return Evaluation(dataCopy).apply {
-        evaluateModel(model, testSet)
-    }
-}
-
 // TODO These models will need some fine-tuning
 fun models() = listOf<Pair<String, Classifier>>(
         "RF" to RandomForest().apply {
