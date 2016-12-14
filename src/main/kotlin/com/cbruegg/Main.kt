@@ -53,7 +53,7 @@ fun main(args: Array<String>) {
                 }.forEach(Thread::join)
         results.entries.sortedBy { it.key.path }.map { it.value }.forEach(::println)
     } else {
-        evaluate(input, validateMode)
+        println(evaluate(input, validateMode))
     }
 }
 
