@@ -16,31 +16,27 @@ import java.io.File
 import java.util.*
 import kotlin.concurrent.thread
 
-sealed class ValidateMode {
-    object RandomCrossValidation : ValidateMode()
-    object UserCrossValidation : ValidateMode()
-    class ValidationAgainst(val testFile: File) : ValidateMode()
+sealed class ValidateMode(val useFeatureSelection: Boolean) {
+   class RandomCrossValidation(useFeatureSelection: Boolean) : ValidateMode(useFeatureSelection)
+   class UserCrossValidation(useFeatureSelection: Boolean) : ValidateMode(useFeatureSelection)
 }
 
 private const val FLAG_USER_VALIDATION = "--uservalidation"
+private const val FLAG_NO_FEATURE_SELECTION = "--no-feature-selection"
 
 fun main(args: Array<String>) {
     if (args.isEmpty()) {
-        println("Usage: java -jar xxx.jar <trainingset> <optional testset>")
-        println("If no testset is provided, cross validation is used.")
-        println("OR: java -jar xxx.jar <trainingset> $FLAG_USER_VALIDATION")
-        println("In this case, cross validation will be performed with users being taken out.")
+        println("Usage: java -jar xxx.jar <trainingset> [$FLAG_USER_VALIDATION] [$FLAG_NO_FEATURE_SELECTION]")
+        println("$FLAG_USER_VALIDATION will make cross validation be performed with users being taken out.")
+        println("$FLAG_NO_FEATURE_SELECTION will prevent initial feature selection.")
         return
     }
 
     val input = File(args[0])
-    val validateMode = if (1 in args.indices) {
-        if (args[1] == FLAG_USER_VALIDATION) {
-            ValidateMode.UserCrossValidation
-        } else {
-            ValidateMode.ValidationAgainst(File(args[1]))
-        }
-    } else ValidateMode.RandomCrossValidation
+    val useFeatureSelection = FLAG_NO_FEATURE_SELECTION in args
+    val validateMode = if (FLAG_USER_VALIDATION in args) {
+        ValidateMode.UserCrossValidation(useFeatureSelection)
+    } else ValidateMode.RandomCrossValidation(useFeatureSelection)
 
     if (input.isDirectory) {
         val results = Collections.synchronizedMap(mutableMapOf<File, String>())
@@ -69,7 +65,9 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
     val resultsByModel = mutableMapOf<String, String>()
     val threads = mutableListOf<Thread>()
     for ((description, baseModel) in models()) {
-        val model = baseModel.toAttributeSelectedClassifier()
+        val model = if (validateMode.useFeatureSelection)
+            baseModel.toAttributeSelectedClassifier()
+        else baseModel
 
         threads += thread {
             val data = loadDataFromFile(input)
@@ -100,16 +98,6 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
                         crossValidateModel(model, data, emptyArray(), Random(1)) {
                             users.indexOf(userByInstance[Arrays.hashCode(it.numericalValues())]!!)
                         }
-                    }
-                }
-                is ValidateMode.ValidationAgainst -> {
-                    data.deleteAttributeAt(usernameAttrIndex)
-                    val testFile = validateMode.testFile
-                    val testSet = loadDataFromFile(testFile)
-                    testSet.deleteAttributeAt(usernameAttrIndex)
-                    model.buildClassifier(data)
-                    Evaluation(data).apply {
-                        evaluateModel(model, testSet)
                     }
                 }
             }
