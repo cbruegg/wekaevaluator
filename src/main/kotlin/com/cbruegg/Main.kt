@@ -5,6 +5,7 @@ import weka.attributeSelection.GreedyStepwise
 import weka.classifiers.Classifier
 import weka.classifiers.Evaluation
 import weka.classifiers.bayes.NaiveBayes
+import weka.classifiers.functions.MultilayerPerceptron
 import weka.classifiers.lazy.IBk
 import weka.classifiers.meta.AttributeSelectedClassifier
 import weka.classifiers.trees.J48
@@ -16,27 +17,30 @@ import java.io.File
 import java.util.*
 import kotlin.concurrent.thread
 
-sealed class ValidateMode(val useFeatureSelection: Boolean) {
-   class RandomCrossValidation(useFeatureSelection: Boolean) : ValidateMode(useFeatureSelection)
-   class UserCrossValidation(useFeatureSelection: Boolean) : ValidateMode(useFeatureSelection)
+sealed class ValidateMode(val useFeatureSelection: Boolean, val useAllClassifiers: Boolean) {
+   class RandomCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: Boolean) : ValidateMode(useFeatureSelection, useAllClassifiers)
+   class UserCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: Boolean) : ValidateMode(useFeatureSelection, useAllClassifiers)
 }
 
 private const val FLAG_USER_VALIDATION = "--uservalidation"
 private const val FLAG_NO_FEATURE_SELECTION = "--no-feature-selection"
+private const val FLAG_USE_ALL_CLASSIFIERS = "--use-all-classifiers"
 
 fun main(args: Array<String>) {
     if (args.isEmpty()) {
-        println("Usage: java -jar xxx.jar <trainingset> [$FLAG_USER_VALIDATION] [$FLAG_NO_FEATURE_SELECTION]")
+        println("Usage: java -jar xxx.jar <trainingset> [$FLAG_USER_VALIDATION] [$FLAG_NO_FEATURE_SELECTION] [$FLAG_USE_ALL_CLASSIFIERS]")
         println("$FLAG_USER_VALIDATION will make cross validation be performed with users being taken out.")
         println("$FLAG_NO_FEATURE_SELECTION will prevent initial feature selection.")
+        println("$FLAG_USE_ALL_CLASSIFIERS will use all classifiers instead of just RF.")
         return
     }
 
     val input = File(args[0])
-    val useFeatureSelection = FLAG_NO_FEATURE_SELECTION in args
+    val useFeatureSelection = FLAG_NO_FEATURE_SELECTION !in args
+    val useAllClassifiers = FLAG_USE_ALL_CLASSIFIERS in args
     val validateMode = if (FLAG_USER_VALIDATION in args) {
-        ValidateMode.UserCrossValidation(useFeatureSelection)
-    } else ValidateMode.RandomCrossValidation(useFeatureSelection)
+        ValidateMode.UserCrossValidation(useFeatureSelection, useAllClassifiers)
+    } else ValidateMode.RandomCrossValidation(useFeatureSelection, useAllClassifiers)
 
     if (input.isDirectory) {
         val results = Collections.synchronizedMap(mutableMapOf<File, String>())
@@ -64,7 +68,7 @@ fun Classifier.toAttributeSelectedClassifier() = AttributeSelectedClassifier().a
 private fun evaluate(input: File, validateMode: ValidateMode): String {
     val resultsByModel = mutableMapOf<String, String>()
     val threads = mutableListOf<Thread>()
-    for ((description, baseModel) in models()) {
+    for ((description, baseModel) in models(validateMode.useAllClassifiers)) {
         val model = if (validateMode.useFeatureSelection)
             baseModel.toAttributeSelectedClassifier()
         else baseModel
@@ -136,7 +140,7 @@ private fun loadDataFromFile(input: File, classAttr: String = "sampleClass"): In
 
 // TODO These models will need some fine-tuning
 // TODO Personal model evaluation
-fun models() = listOf<Pair<String, Classifier>>(
+fun models(useAll: Boolean) = listOf<Pair<String, Classifier>>(
         "RF" to RandomForest().apply {
             // -K 0
             numIterations = 100
@@ -146,6 +150,6 @@ fun models() = listOf<Pair<String, Classifier>>(
         "IB3" to IBk().apply {
             knn = 3
         },
-        "NB" to NaiveBayes()
-//        "MLP" to MultilayerPerceptron()
-)
+        "NB" to NaiveBayes(),
+        "MLP" to MultilayerPerceptron()
+).let { if (useAll) it else it.filter { it.first == "RF" } }
