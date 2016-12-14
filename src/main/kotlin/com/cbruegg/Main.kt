@@ -1,9 +1,12 @@
 package com.cbruegg
 
+import weka.attributeSelection.CfsSubsetEval
+import weka.attributeSelection.GreedyStepwise
 import weka.classifiers.Classifier
 import weka.classifiers.Evaluation
 import weka.classifiers.bayes.NaiveBayes
 import weka.classifiers.lazy.IBk
+import weka.classifiers.meta.AttributeSelectedClassifier
 import weka.classifiers.trees.J48
 import weka.classifiers.trees.RandomForest
 import weka.core.Instance
@@ -54,10 +57,20 @@ fun main(args: Array<String>) {
     }
 }
 
+fun Classifier.toAttributeSelectedClassifier() = AttributeSelectedClassifier().apply {
+    classifier = this@toAttributeSelectedClassifier
+    evaluator = CfsSubsetEval()
+    search = GreedyStepwise().apply {
+        searchBackwards = true
+    }
+}
+
 private fun evaluate(input: File, validateMode: ValidateMode): String {
     val resultsByModel = mutableMapOf<String, String>()
     val threads = mutableListOf<Thread>()
-    for ((description, model) in models()) {
+    for ((description, baseModel) in models()) {
+        val model = baseModel.toAttributeSelectedClassifier()
+
         threads += thread {
             val data = loadDataFromFile(input)
 
@@ -134,6 +147,7 @@ private fun loadDataFromFile(input: File, classAttr: String = "sampleClass"): In
 }
 
 // TODO These models will need some fine-tuning
+// TODO Personal model evaluation
 fun models() = listOf<Pair<String, Classifier>>(
         "RF" to RandomForest().apply {
             // -K 0
