@@ -23,7 +23,7 @@ sealed class ValidateMode(val useFeatureSelection: Boolean, val useAllClassifier
 }
 
 private const val FLAG_USER_VALIDATION = "--uservalidation"
-private const val FLAG_NO_FEATURE_SELECTION = "--no-feature-selection"
+private const val FLAG_NO_FEATURE_SELECTION = "--no-feature-selection" // TODO Invert this option
 private const val FLAG_USE_ALL_CLASSIFIERS = "--use-all-classifiers"
 
 fun main(args: Array<String>) {
@@ -142,9 +142,9 @@ private fun loadDataFromFile(input: File, classAttr: String = "sampleClass"): In
 // TODO Personal model evaluation
 fun models(useAll: Boolean) = listOf<Pair<String, Classifier>>(
         "RF" to RandomForest().apply {
-            // -K 0
-            numIterations = 100
-            numFeatures = 100
+            numIterations = 50
+            numFeatures = 10 // -K 10 (Number of attributes to randomly investigate)
+            maxDepth = 25
         },
         "J48" to J48(),
         "IB3" to IBk().apply {
