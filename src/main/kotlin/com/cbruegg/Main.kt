@@ -18,20 +18,23 @@ import java.util.*
 import kotlin.concurrent.thread
 
 sealed class ValidateMode(val useFeatureSelection: Boolean, val useAllClassifiers: Boolean) {
-   class RandomCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: Boolean) : ValidateMode(useFeatureSelection, useAllClassifiers)
-   class UserCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: Boolean) : ValidateMode(useFeatureSelection, useAllClassifiers)
+    class RandomCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: Boolean) : ValidateMode(useFeatureSelection, useAllClassifiers)
+    class UserCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: Boolean) : ValidateMode(useFeatureSelection, useAllClassifiers)
+    class PersonalRandomCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: Boolean) : ValidateMode(useFeatureSelection, useAllClassifiers)
 }
 
 private const val FLAG_RANDOM_CROSS_VALIDATION = "--random-cross-validation"
 private const val FLAG_USE_FEATURE_SELECTION = "--feature-selection"
 private const val FLAG_USE_ALL_CLASSIFIERS = "--use-all-classifiers"
+private const val FLAG_PERSONAL_MODEL = "--personal"
 
 fun main(args: Array<String>) {
     if (args.isEmpty()) {
-        println("Usage: java -jar xxx.jar <trainingset> [$FLAG_RANDOM_CROSS_VALIDATION] [$FLAG_USE_FEATURE_SELECTION] [$FLAG_USE_ALL_CLASSIFIERS]")
+        println("Usage: java -jar xxx.jar <trainingset> <flags>")
         println("$FLAG_RANDOM_CROSS_VALIDATION will make cross validation be performed with random instances being taken out. Otherwise users will be taken out.")
         println("$FLAG_USE_FEATURE_SELECTION will perform initial feature selection.")
         println("$FLAG_USE_ALL_CLASSIFIERS will use all classifiers instead of just RF.")
+        println("$FLAG_PERSONAL_MODEL will perform cross-validation on models for one user only. Cannot be used in conjunction with $FLAG_RANDOM_CROSS_VALIDATION")
         return
     }
 
@@ -40,6 +43,8 @@ fun main(args: Array<String>) {
     val useAllClassifiers = FLAG_USE_ALL_CLASSIFIERS in args
     val validateMode = if (FLAG_RANDOM_CROSS_VALIDATION in args) {
         ValidateMode.RandomCrossValidation(useFeatureSelection, useAllClassifiers)
+    } else if (FLAG_PERSONAL_MODEL in args) {
+        ValidateMode.PersonalRandomCrossValidation(useFeatureSelection, useAllClassifiers)
     } else ValidateMode.UserCrossValidation(useFeatureSelection, useAllClassifiers)
 
     if (input.isDirectory) {
@@ -77,7 +82,33 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
             val data = loadDataFromFile(input)
 
             val usernameAttrIndex = data.attribute("username").index()
+            val users = data.attribute("username")
+                    .enumerateValues()
+                    .asSequence()
+                    .distinct()
+                    .filterIsInstance<String>()
+                    .toList()
+            val userByInstance = data.associate {
+                Arrays.hashCode(it.numericalValues()) to it.stringValue(usernameAttrIndex)
+            }
+
             val eval = when (validateMode) {
+                is ValidateMode.PersonalRandomCrossValidation -> {
+                    Evaluation(data).apply {
+                        for (user in users) {
+                            val filteredData = Instances(data).apply {
+                                for (i in indices.reversed()) {
+                                    val instanceUser = userByInstance[Arrays.hashCode(this[i].numericalValues())]
+                                    if (instanceUser != user) {
+                                        removeAt(i)
+                                    }
+                                }
+                            }
+                            model.buildClassifier(filteredData)
+                            crossValidateModel(model, filteredData, 10, Random(1))
+                        }
+                    }
+                }
                 is ValidateMode.RandomCrossValidation -> {
                     data.deleteAttributeAt(usernameAttrIndex)
                     model.buildClassifier(data)
@@ -86,15 +117,6 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
                     }
                 }
                 is ValidateMode.UserCrossValidation -> {
-                    val users = data.attribute("username")
-                            .enumerateValues()
-                            .asSequence()
-                            .distinct()
-                            .filterIsInstance<String>()
-                            .toList()
-                    val userByInstance = data.associate {
-                        Arrays.hashCode(it.numericalValues()) to it.stringValue(usernameAttrIndex)
-                    }
                     data.deleteAttributeAt(usernameAttrIndex)
                     model.buildClassifier(data)
 
