@@ -22,14 +22,14 @@ sealed class ValidateMode(val useFeatureSelection: Boolean, val useAllClassifier
    class UserCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: Boolean) : ValidateMode(useFeatureSelection, useAllClassifiers)
 }
 
-private const val FLAG_USER_VALIDATION = "--uservalidation"
+private const val FLAG_RANDOM_CROSS_VALIDATION = "--random-cross-validation"
 private const val FLAG_USE_FEATURE_SELECTION = "--feature-selection"
 private const val FLAG_USE_ALL_CLASSIFIERS = "--use-all-classifiers"
 
 fun main(args: Array<String>) {
     if (args.isEmpty()) {
-        println("Usage: java -jar xxx.jar <trainingset> [$FLAG_USER_VALIDATION] [$FLAG_USE_FEATURE_SELECTION] [$FLAG_USE_ALL_CLASSIFIERS]")
-        println("$FLAG_USER_VALIDATION will make cross validation be performed with users being taken out.")
+        println("Usage: java -jar xxx.jar <trainingset> [$FLAG_RANDOM_CROSS_VALIDATION] [$FLAG_USE_FEATURE_SELECTION] [$FLAG_USE_ALL_CLASSIFIERS]")
+        println("$FLAG_RANDOM_CROSS_VALIDATION will make cross validation be performed with random instances being taken out. Otherwise users will be taken out.")
         println("$FLAG_USE_FEATURE_SELECTION will perform initial feature selection.")
         println("$FLAG_USE_ALL_CLASSIFIERS will use all classifiers instead of just RF.")
         return
@@ -38,9 +38,9 @@ fun main(args: Array<String>) {
     val input = File(args[0])
     val useFeatureSelection = FLAG_USE_FEATURE_SELECTION in args
     val useAllClassifiers = FLAG_USE_ALL_CLASSIFIERS in args
-    val validateMode = if (FLAG_USER_VALIDATION in args) {
-        ValidateMode.UserCrossValidation(useFeatureSelection, useAllClassifiers)
-    } else ValidateMode.RandomCrossValidation(useFeatureSelection, useAllClassifiers)
+    val validateMode = if (FLAG_RANDOM_CROSS_VALIDATION in args) {
+        ValidateMode.RandomCrossValidation(useFeatureSelection, useAllClassifiers)
+    } else ValidateMode.UserCrossValidation(useFeatureSelection, useAllClassifiers)
 
     if (input.isDirectory) {
         val results = Collections.synchronizedMap(mutableMapOf<File, String>())
