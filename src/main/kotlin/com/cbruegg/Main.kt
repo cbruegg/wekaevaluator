@@ -160,8 +160,6 @@ private fun loadDataFromFile(input: File, classAttr: String = "sampleClass"): In
     return data
 }
 
-// TODO These models will need some fine-tuning
-// TODO Personal model evaluation
 fun models(useAll: Boolean) = listOf<Pair<String, Classifier>>(
         "RF" to RandomForest().apply {
             numIterations = 50
