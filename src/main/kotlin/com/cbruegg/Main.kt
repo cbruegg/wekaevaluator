@@ -23,20 +23,20 @@ sealed class ValidateMode(val useFeatureSelection: Boolean, val useAllClassifier
 }
 
 private const val FLAG_USER_VALIDATION = "--uservalidation"
-private const val FLAG_NO_FEATURE_SELECTION = "--no-feature-selection" // TODO Invert this option
+private const val FLAG_USE_FEATURE_SELECTION = "--feature-selection"
 private const val FLAG_USE_ALL_CLASSIFIERS = "--use-all-classifiers"
 
 fun main(args: Array<String>) {
     if (args.isEmpty()) {
-        println("Usage: java -jar xxx.jar <trainingset> [$FLAG_USER_VALIDATION] [$FLAG_NO_FEATURE_SELECTION] [$FLAG_USE_ALL_CLASSIFIERS]")
+        println("Usage: java -jar xxx.jar <trainingset> [$FLAG_USER_VALIDATION] [$FLAG_USE_FEATURE_SELECTION] [$FLAG_USE_ALL_CLASSIFIERS]")
         println("$FLAG_USER_VALIDATION will make cross validation be performed with users being taken out.")
-        println("$FLAG_NO_FEATURE_SELECTION will prevent initial feature selection.")
+        println("$FLAG_USE_FEATURE_SELECTION will perform initial feature selection.")
         println("$FLAG_USE_ALL_CLASSIFIERS will use all classifiers instead of just RF.")
         return
     }
 
     val input = File(args[0])
-    val useFeatureSelection = FLAG_NO_FEATURE_SELECTION !in args
+    val useFeatureSelection = FLAG_USE_FEATURE_SELECTION in args
     val useAllClassifiers = FLAG_USE_ALL_CLASSIFIERS in args
     val validateMode = if (FLAG_USER_VALIDATION in args) {
         ValidateMode.UserCrossValidation(useFeatureSelection, useAllClassifiers)
