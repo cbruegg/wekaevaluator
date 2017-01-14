@@ -143,7 +143,7 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
 
             resultsByModel[description] = datasetsEvals.mapIndexed { i, eval ->
                 """
-            |+++ TRAINING $description ${if (validateMode.evalConvergence) "with subset of size ${i + 1} " else ""}+++
+            |+++ TRAINING $description ${if (validateMode.evalConvergence) "with subset of size ${i + 2} " else ""}+++
             |=== Results of $description ===
             |${eval.toSummaryString("", false)}
             |=== Confusion Matrix of $description ===
