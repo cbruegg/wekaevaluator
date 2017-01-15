@@ -79,68 +79,73 @@ fun Classifier.toAttributeSelectedClassifier() = AttributeSelectedClassifier().a
     }
 }
 
+private fun Instances.extractUsers(): List<String> = map { it.stringValue(attribute("username")) }.distinct()
+
 private fun evaluate(input: File, validateMode: ValidateMode): String {
     val resultsByModel = mutableMapOf<String, String>()
     val threads = mutableListOf<Thread>()
+
+
     for ((description, baseModel) in models(validateMode.useAllClassifiers)) {
         val model = if (validateMode.useFeatureSelection)
             baseModel.toAttributeSelectedClassifier()
         else baseModel
 
         threads += thread {
-            val fullDataset = loadDataFromFile(input)
-
-            val usernameAttrIndex = fullDataset.attribute("username").index()
-            val users = fullDataset.attribute("username")
-                    .enumerateValues()
-                    .asSequence()
-                    .distinct()
-                    .filterIsInstance<String>()
-                    .toList()
-            val userByInstance = fullDataset.associate {
-                Arrays.hashCode(it.numericalValues()) to it.stringValue(usernameAttrIndex)
-            }
-
-            fun eval(data: Instances) = when (validateMode) {
-                is ValidateMode.PersonalRandomCrossValidation -> {
-                    Evaluation(data).apply {
-                        for (user in users) {
-                            val filteredData = Instances(data).apply {
-                                for (i in indices.reversed()) {
-                                    val instanceUser = userByInstance[Arrays.hashCode(this[i].numericalValues())]
-                                    if (instanceUser != user) {
-                                        removeAt(i)
+            fun eval(data: Instances): Evaluation {
+                val users = data.extractUsers()
+                val usernameAttrIndex = data.attribute("username").index()
+                val userByInstance = data.associate {
+                    Arrays.hashCode(it.numericalValues()) to it.stringValue(usernameAttrIndex)
+                }
+                return when (validateMode) {
+                    is ValidateMode.PersonalRandomCrossValidation -> {
+                        Evaluation(data).apply {
+                            for (user in users) {
+                                val filteredData = Instances(data).apply {
+                                    for (i in indices.reversed()) {
+                                        val instanceUser = userByInstance[Arrays.hashCode(this[i].numericalValues())]
+                                        if (instanceUser != user) {
+                                            removeAt(i)
+                                        }
                                     }
                                 }
+                                model.buildClassifier(filteredData)
+                                crossValidateModel(model, filteredData, 10, Random(1))
                             }
-                            model.buildClassifier(filteredData)
-                            crossValidateModel(model, filteredData, 10, Random(1))
                         }
                     }
-                }
-                is ValidateMode.RandomCrossValidation -> {
-                    data.deleteAttributeAt(usernameAttrIndex)
-                    model.buildClassifier(data)
-                    Evaluation(data).apply {
-                        crossValidateModel(model, data, 10, Random(1))
+                    is ValidateMode.RandomCrossValidation -> {
+                        data.deleteAttributeAt(usernameAttrIndex)
+                        model.buildClassifier(data)
+                        Evaluation(data).apply {
+                            crossValidateModel(model, data, 10, Random(1))
+                        }
                     }
-                }
-                is ValidateMode.UserCrossValidation -> {
-                    data.deleteAttributeAt(usernameAttrIndex)
-                    model.buildClassifier(data)
+                    is ValidateMode.UserCrossValidation -> {
+                        data.deleteAttributeAt(usernameAttrIndex)
+                        model.buildClassifier(data)
 
-                    Evaluation(data).apply {
-                        crossValidateModel(model, data, emptyArray(), Random(1)) {
-                            users.indexOf(userByInstance[Arrays.hashCode(it.numericalValues())]!!)
+                        Evaluation(data).apply {
+                            crossValidateModel(model, data, emptyArray(), Random(1)) {
+                                users.indexOf(userByInstance[Arrays.hashCode(it.numericalValues())]!!)
+                            }
                         }
                     }
                 }
+            }
+
+            val fullDataset = loadDataFromFile(input)
+            val users = fullDataset.extractUsers()
+            val usernameAttrIndex = fullDataset.attribute("username").index()
+            val userByInstance = fullDataset.associate {
+                Arrays.hashCode(it.numericalValues()) to it.stringValue(usernameAttrIndex)
             }
 
             resultsByModel[description] = if (validateMode.evalConvergence) {
                 val reducedDatasets = fullDataset.generateSubsets(users, userByInstance,
                         howManyMaxPerSize = 10, random = random)
-                val datasetsEvals = reducedDatasets.map { eval(it).pctCorrect() to it.size }
+                val datasetsEvals = reducedDatasets.map { eval(it.second).pctCorrect() to it.first }
                 val accuraciesBySize = datasetsEvals.groupBy { it.second }
                 val avgAccuraciesBySize = accuraciesBySize.mapValues { it.value.asSequence().map { it.first }.average() }
                 val accuracyTable = avgAccuraciesBySize.entries.joinToString(separator = "\n") {
@@ -173,9 +178,10 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
 /**
  * Generate subsets of the complete dataset to evaluate the convergence
  * of the accuracy depending on the amount of data we have. This
- * method will generate [Instances] with users {u1, u2}, ... {u1, ..., un}.
+ * method will generate [Instances] with 2, ..., N users, [howManyMaxPerSize] each at max.
  *
  * @param [userByInstance] val instanceUser = userByInstance[Arrays.hashCode(instance.numericalValues())]
+ * @return seq of userCount to sublists
  */
 fun Instances.generateSubsets(users: List<String>,
                               userByInstance: Map<Int, String>,
@@ -184,13 +190,13 @@ fun Instances.generateSubsets(users: List<String>,
         (2..users.size)
                 .asSequence()
                 .flatMap {
-                    users.randomSubLists(
+                   users.randomSubLists(
                             howMany = Math.min(howManyMaxPerSize, binomialCoefficient(n = users.size, k = it).toInt()),
                             ofSize = it,
                             random = random)
                 }
                 .map { usersToKeep ->
-                    Instances(this).apply {
+                    usersToKeep.size to Instances(this).apply {
                         for (i in indices.reversed()) {
                             val instanceUser = userByInstance[Arrays.hashCode(this[i].numericalValues())]
                             if (instanceUser !in usersToKeep) {
