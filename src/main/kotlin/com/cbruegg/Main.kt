@@ -136,20 +136,28 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
                 }
             }
 
-            val reducedDatasets =
-                    if (validateMode.evalConvergence) generateSubsets(fullDataset, users, userByInstance)
-                    else sequenceOf(fullDataset)
-            val datasetsEvals = reducedDatasets.map(::eval)
-
-            resultsByModel[description] = datasetsEvals.mapIndexed { i, eval ->
+            resultsByModel[description] = if (validateMode.evalConvergence) {
+                val reducedDatasets = generateSubsets(fullDataset, users, userByInstance)
+                val datasetsEvals = reducedDatasets.map { eval(it).pctCorrect() to it.size }
+                val accuraciesBySize = datasetsEvals.groupBy { it.second }
+                val avgAccuraciesBySize = accuraciesBySize.mapValues { it.value.asSequence().map { it.first }.average() }
+                val accuracyTable = avgAccuraciesBySize.entries.joinToString(separator = "\n") {
+                    "${it.key},${it.value}"
+                }
                 """
-            |+++ TRAINING $description ${if (validateMode.evalConvergence) "with subset of size ${i + 2} " else ""}+++
+                |+++ Evaluating convergence with $description +++
+                |subset_size,avg_pct_correct""".trimMargin().trim() + "\n" + accuracyTable
+
+            } else {
+                val evaled = eval(fullDataset)
+                """
+            |+++ TRAINING $description +++
             |=== Results of $description ===
-            |${eval.toSummaryString("", false)}
+            |${evaled.toSummaryString("", false)}
             |=== Confusion Matrix of $description ===
-            |${eval.toMatrixString("")}
-            |""".trimMargin()
-            }.joinToString(separator = "\n")
+            |${evaled.toMatrixString("")}
+            |""".trimMargin().trim()
+            }
         }
     }
     threads.forEach(Thread::join)
