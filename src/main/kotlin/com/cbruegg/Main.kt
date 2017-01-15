@@ -33,6 +33,7 @@ private const val FLAG_USE_FEATURE_SELECTION = "--feature-selection"
 private const val FLAG_USE_ALL_CLASSIFIERS = "--use-all-classifiers"
 private const val FLAG_PERSONAL_MODEL = "--personal"
 private const val FLAG_ACCURACY_CONVERGENCE = "--eval-convergence"
+private val random = Random(0)
 
 fun main(args: Array<String>) {
     if (args.isEmpty()) {
@@ -137,7 +138,8 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
             }
 
             resultsByModel[description] = if (validateMode.evalConvergence) {
-                val reducedDatasets = generateSubsets(fullDataset, users, userByInstance)
+                val reducedDatasets = fullDataset.generateSubsets(users, userByInstance,
+                        howManyMaxPerSize = 10, random = random)
                 val datasetsEvals = reducedDatasets.map { eval(it).pctCorrect() to it.size }
                 val accuraciesBySize = datasetsEvals.groupBy { it.second }
                 val avgAccuraciesBySize = accuraciesBySize.mapValues { it.value.asSequence().map { it.first }.average() }
@@ -175,12 +177,20 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
  *
  * @param [userByInstance] val instanceUser = userByInstance[Arrays.hashCode(instance.numericalValues())]
  */
-fun generateSubsets(data: Instances, users: List<String>, userByInstance: Map<Int, String>) =
+fun Instances.generateSubsets(users: List<String>,
+                              userByInstance: Map<Int, String>,
+                              howManyMaxPerSize: Int,
+                              random: Random) =
         (2..users.size)
                 .asSequence()
-                .map { users.subList(0, it) }
+                .flatMap {
+                    users.randomSubLists(
+                            howMany = Math.min(howManyMaxPerSize, binomialCoefficient(n = users.size, k = it).toInt()),
+                            ofSize = it,
+                            random = random)
+                }
                 .map { usersToKeep ->
-                    Instances(data).apply {
+                    Instances(this).apply {
                         for (i in indices.reversed()) {
                             val instanceUser = userByInstance[Arrays.hashCode(this[i].numericalValues())]
                             if (instanceUser !in usersToKeep) {
@@ -189,6 +199,14 @@ fun generateSubsets(data: Instances, users: List<String>, userByInstance: Map<In
                         }
                     }
                 }
+
+fun <T> List<T>.randomSubLists(howMany: Int, ofSize: Int, random: Random): Sequence<List<T>> {
+    return generateSequence {
+        random.intSequence(indices).distinct().take(ofSize).map { this[it] }.toList()
+    }.distinct().take(howMany)
+}
+
+fun Random.intSequence(range: IntRange) = generateSequence { range.start + nextInt(range.endInclusive - range.start) }
 
 fun Instance.numericalValues(): DoubleArray = (0 until numAttributes())
         .filter { attribute(it).isNumeric }
