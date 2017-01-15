@@ -190,7 +190,7 @@ fun Instances.generateSubsets(users: List<String>,
         (2..users.size)
                 .asSequence()
                 .flatMap {
-                   users.randomSubLists(
+                    users.randomSubLists(
                             howMany = Math.min(howManyMaxPerSize, binomialCoefficient(n = users.size, k = it).toInt()),
                             ofSize = it,
                             random = random)
@@ -207,7 +207,9 @@ fun Instances.generateSubsets(users: List<String>,
                 }
 
 fun <T> List<T>.randomSubLists(howMany: Int, ofSize: Int, random: Random): Sequence<List<T>> {
-    return generateSequence {
+    return if (ofSize == size) {
+        return sequenceOf(this)
+    } else generateSequence {
         random.intSequence(indices).distinct().take(ofSize).map { this[it] }.toList()
     }.distinct().take(howMany)
 }
