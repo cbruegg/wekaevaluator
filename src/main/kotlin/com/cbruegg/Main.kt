@@ -258,7 +258,7 @@ fun models(classifierMode: ClassifierMode): List<Pair<String, Classifier>> {
             "MLP" to MultilayerPerceptron()
     )
     val rfs = listOf<Pair<String, Classifier>>(
-            "RF1" to RandomForest().apply {
+            "RF1_default" to RandomForest().apply {
                 numIterations = 50
                 numFeatures = 10 // -K 10 (Number of attributes to randomly investigate)
                 maxDepth = 25
@@ -277,6 +277,31 @@ fun models(classifierMode: ClassifierMode): List<Pair<String, Classifier>> {
                 numIterations = 100
                 numFeatures = 0 // Will use a default value
                 maxDepth = 50
+            },
+            "RF5" to RandomForest().apply {
+                numIterations = 200 // Give it time
+                numFeatures = Int.MAX_VALUE // No limit, consider all attributes at all nodes
+                maxDepth = 50 // No limit
+            },
+            "RF6" to RandomForest().apply {
+                numIterations = 150
+                numFeatures = 0 // Will use a default value
+                maxDepth = 50
+            },
+            "RF7" to RandomForest().apply {
+                numIterations = 100
+                numFeatures = 0 // Will use a default value
+                maxDepth = 75
+            },
+            "RF8" to RandomForest().apply {
+                numIterations = 75
+                numFeatures = 0 // Will use a default value
+                maxDepth = 50
+            },
+            "RF9" to RandomForest().apply {
+                numIterations = 100
+                numFeatures = 0 // Will use a default value
+                maxDepth = 30
             }
     )
 
