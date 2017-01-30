@@ -175,7 +175,7 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
             |${evaled.toSummaryString("", false)}
             |=== Confusion Matrix of $description ===
             |${evaled.toMatrixString("")}
-            |""".trimMargin().trim()
+            |""".trimMargin()
             }
         }
     }
