@@ -17,20 +17,25 @@ import java.io.File
 import java.util.*
 import kotlin.concurrent.thread
 
-sealed class ValidateMode(val useFeatureSelection: Boolean, val useAllClassifiers: Boolean, val evalConvergence: Boolean) {
-    class RandomCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: Boolean, evalConvergence: Boolean) :
+enum class ClassifierMode {
+    RF, MULTIPLE_RF, ALL
+}
+
+sealed class ValidateMode(val useFeatureSelection: Boolean, val classifierMode: ClassifierMode, val evalConvergence: Boolean) {
+    class RandomCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: ClassifierMode, evalConvergence: Boolean) :
             ValidateMode(useFeatureSelection, useAllClassifiers, evalConvergence)
 
-    class UserCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: Boolean, evalConvergence: Boolean) :
+    class UserCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: ClassifierMode, evalConvergence: Boolean) :
             ValidateMode(useFeatureSelection, useAllClassifiers, evalConvergence)
 
-    class PersonalRandomCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: Boolean, evalConvergence: Boolean) :
+    class PersonalRandomCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: ClassifierMode, evalConvergence: Boolean) :
             ValidateMode(useFeatureSelection, useAllClassifiers, evalConvergence)
 }
 
 private const val FLAG_RANDOM_CROSS_VALIDATION = "--random-cross-validation"
 private const val FLAG_USE_FEATURE_SELECTION = "--feature-selection"
 private const val FLAG_USE_ALL_CLASSIFIERS = "--use-all-classifiers"
+private const val FLAG_VARY_RF_PARAMS = "--vary-rf-params"
 private const val FLAG_PERSONAL_MODEL = "--personal"
 private const val FLAG_ACCURACY_CONVERGENCE = "--eval-convergence"
 private val random = Random(0)
@@ -42,6 +47,7 @@ fun main(args: Array<String>) {
         println("$FLAG_USE_FEATURE_SELECTION will perform initial feature selection.")
         println("$FLAG_USE_ALL_CLASSIFIERS will use all classifiers instead of just RF.")
         println("$FLAG_PERSONAL_MODEL will perform cross-validation on models for one user only. Cannot be used in conjunction with $FLAG_RANDOM_CROSS_VALIDATION")
+        println("$FLAG_VARY_RF_PARAMS will use multiple RF models and vary their parameters. Cannot be used in conjunction with $FLAG_USE_ALL_CLASSIFIERS")
         println("$FLAG_ACCURACY_CONVERGENCE will evaluate the model with 1 to N users.")
         return
     }
@@ -49,12 +55,18 @@ fun main(args: Array<String>) {
     val input = File(args[0])
     val useFeatureSelection = FLAG_USE_FEATURE_SELECTION in args
     val useAllClassifiers = FLAG_USE_ALL_CLASSIFIERS in args
+    val varyRfParams = FLAG_VARY_RF_PARAMS in args
     val evalConvergence = FLAG_ACCURACY_CONVERGENCE in args
+    val classifierMode =
+            if (useAllClassifiers) ClassifierMode.ALL
+            else if (varyRfParams) ClassifierMode.MULTIPLE_RF
+            else ClassifierMode.RF
+
     val validateMode = if (FLAG_RANDOM_CROSS_VALIDATION in args) {
-        ValidateMode.RandomCrossValidation(useFeatureSelection, useAllClassifiers, evalConvergence)
+        ValidateMode.RandomCrossValidation(useFeatureSelection, classifierMode, evalConvergence)
     } else if (FLAG_PERSONAL_MODEL in args) {
-        ValidateMode.PersonalRandomCrossValidation(useFeatureSelection, useAllClassifiers, evalConvergence)
-    } else ValidateMode.UserCrossValidation(useFeatureSelection, useAllClassifiers, evalConvergence)
+        ValidateMode.PersonalRandomCrossValidation(useFeatureSelection, classifierMode, evalConvergence)
+    } else ValidateMode.UserCrossValidation(useFeatureSelection, classifierMode, evalConvergence)
 
     if (input.isDirectory) {
         val results = Collections.synchronizedMap(mutableMapOf<File, String>())
@@ -86,7 +98,7 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
     val threads = mutableListOf<Thread>()
 
 
-    for ((description, baseModel) in models(validateMode.useAllClassifiers)) {
+    for ((description, baseModel) in models(validateMode.classifierMode)) {
         val model = if (validateMode.useFeatureSelection)
             baseModel.toAttributeSelectedClassifier()
         else baseModel
@@ -231,16 +243,47 @@ private fun loadDataFromFile(input: File, classAttr: String = "sampleClass"): In
     return data
 }
 
-fun models(useAll: Boolean) = listOf<Pair<String, Classifier>>(
-        "RF" to RandomForest().apply {
-            numIterations = 50
-            numFeatures = 10 // -K 10 (Number of attributes to randomly investigate)
-            maxDepth = 25
-        },
-        "J48" to J48(),
-        "IB3" to IBk().apply {
-            knn = 3
-        },
-        "NB" to NaiveBayes(),
-        "MLP" to MultilayerPerceptron()
-).let { if (useAll) it else it.filter { it.first == "RF" } }
+fun models(classifierMode: ClassifierMode): List<Pair<String, Classifier>> {
+    val all = listOf<Pair<String, Classifier>>(
+            "RF" to RandomForest().apply {
+                numIterations = 50
+                numFeatures = 10 // -K 10 (Number of attributes to randomly investigate)
+                maxDepth = 25
+            },
+            "J48" to J48(),
+            "IB3" to IBk().apply {
+                knn = 3
+            },
+            "NB" to NaiveBayes(),
+            "MLP" to MultilayerPerceptron()
+    )
+    val rfs = listOf<Pair<String, Classifier>>(
+            "RF1" to RandomForest().apply {
+                numIterations = 50
+                numFeatures = 10 // -K 10 (Number of attributes to randomly investigate)
+                maxDepth = 25
+            },
+            "RF2" to RandomForest().apply {
+                numIterations = 200 // Give it time
+                numFeatures = Int.MAX_VALUE // No limit, consider all attributes at all nodes
+                maxDepth = 0 // No limit
+            },
+            "RF3" to RandomForest().apply {
+                numIterations = 200 // Give it time
+                numFeatures = Int.MAX_VALUE // No limit, consider all attributes at all nodes
+                maxDepth = 50 // Like above, but limit depth (avoid overfitting)
+            },
+            "RF4" to RandomForest().apply {
+                numIterations = 100
+                numFeatures = 0 // Will use a default value
+                maxDepth = 50
+            }
+    )
+
+    return when (classifierMode) {
+        ClassifierMode.RF -> all.filter { it.first == "RF" }
+        ClassifierMode.MULTIPLE_RF -> rfs
+        ClassifierMode.ALL -> all
+    }
+
+}
