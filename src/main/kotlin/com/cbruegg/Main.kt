@@ -302,6 +302,11 @@ fun models(classifierMode: ClassifierMode): List<Pair<String, Classifier>> {
                 numIterations = 100
                 numFeatures = 0 // Will use a default value
                 maxDepth = 30
+            },
+            "RF10" to RandomForest().apply {
+                numIterations = 75
+                numFeatures = Int.MAX_VALUE
+                maxDepth = 50
             }
     )
 
