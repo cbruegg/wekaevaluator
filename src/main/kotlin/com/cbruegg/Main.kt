@@ -28,6 +28,9 @@ sealed class ValidateMode(val useFeatureSelection: Boolean, val classifierMode: 
     class UserCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: ClassifierMode, evalConvergence: Boolean) :
             ValidateMode(useFeatureSelection, useAllClassifiers, evalConvergence)
 
+    class PerUserCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: ClassifierMode, evalConvergence: Boolean) :
+            ValidateMode(useFeatureSelection, useAllClassifiers, evalConvergence)
+
     class PersonalRandomCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: ClassifierMode, evalConvergence: Boolean) :
             ValidateMode(useFeatureSelection, useAllClassifiers, evalConvergence)
 }
@@ -37,6 +40,7 @@ private const val FLAG_USE_FEATURE_SELECTION = "--feature-selection"
 private const val FLAG_USE_ALL_CLASSIFIERS = "--use-all-classifiers"
 private const val FLAG_VARY_RF_PARAMS = "--vary-rf-params"
 private const val FLAG_PERSONAL_MODEL = "--personal"
+private const val FLAG_EVAL_IMPERSONAL_PER_USER = "--eval-impersonal-per-user"
 private const val FLAG_ACCURACY_CONVERGENCE = "--eval-convergence"
 private val random = Random(0)
 
@@ -49,6 +53,7 @@ fun main(args: Array<String>) {
         println("$FLAG_PERSONAL_MODEL will perform cross-validation on models for one user only. Cannot be used in conjunction with $FLAG_RANDOM_CROSS_VALIDATION")
         println("$FLAG_VARY_RF_PARAMS will use multiple RF models and vary their parameters. Cannot be used in conjunction with $FLAG_USE_ALL_CLASSIFIERS")
         println("$FLAG_ACCURACY_CONVERGENCE will evaluate the model with 1 to N users.")
+        println("$FLAG_EVAL_IMPERSONAL_PER_USER will evaluate an impersonal model for each user and print its results.")
         return
     }
 
@@ -57,16 +62,20 @@ fun main(args: Array<String>) {
     val useAllClassifiers = FLAG_USE_ALL_CLASSIFIERS in args
     val varyRfParams = FLAG_VARY_RF_PARAMS in args
     val evalConvergence = FLAG_ACCURACY_CONVERGENCE in args
+    val evalImpersonalPerUser = FLAG_EVAL_IMPERSONAL_PER_USER in args
     val classifierMode =
             if (useAllClassifiers) ClassifierMode.ALL
             else if (varyRfParams) ClassifierMode.MULTIPLE_RF
             else ClassifierMode.RF
 
-    val validateMode = if (FLAG_RANDOM_CROSS_VALIDATION in args) {
-        ValidateMode.RandomCrossValidation(useFeatureSelection, classifierMode, evalConvergence)
-    } else if (FLAG_PERSONAL_MODEL in args) {
-        ValidateMode.PersonalRandomCrossValidation(useFeatureSelection, classifierMode, evalConvergence)
-    } else ValidateMode.UserCrossValidation(useFeatureSelection, classifierMode, evalConvergence)
+    val validateMode =
+            if (evalImpersonalPerUser) {
+                ValidateMode.PerUserCrossValidation(useFeatureSelection, classifierMode, evalConvergence)
+            } else if (FLAG_RANDOM_CROSS_VALIDATION in args) {
+                ValidateMode.RandomCrossValidation(useFeatureSelection, classifierMode, evalConvergence)
+            } else if (FLAG_PERSONAL_MODEL in args) {
+                ValidateMode.PersonalRandomCrossValidation(useFeatureSelection, classifierMode, evalConvergence)
+            } else ValidateMode.UserCrossValidation(useFeatureSelection, classifierMode, evalConvergence)
 
     if (input.isDirectory) {
         val results = Collections.synchronizedMap(mutableMapOf<File, String>())
@@ -104,7 +113,7 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
         else baseModel
 
         threads += thread {
-            fun eval(data: Instances): Evaluation {
+            fun eval(data: Instances, validateMode: ValidateMode): Evaluation {
                 val users = data.extractUsers()
                 val usernameAttrIndex = data.attribute("username").index()
                 val userByInstance = data.associate {
@@ -144,6 +153,7 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
                             }
                         }
                     }
+                    is ValidateMode.PerUserCrossValidation -> throw IllegalArgumentException()
                 }
             }
 
@@ -154,29 +164,63 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
                 Arrays.hashCode(it.numericalValues()) to it.stringValue(usernameAttrIndex)
             }
 
-            resultsByModel[description] = if (validateMode.evalConvergence) {
-                val reducedDatasets = fullDataset.generateSubsets(users, userByInstance,
-                        howManyMaxPerSize = 10, random = random)
-                val datasetsEvals = reducedDatasets.map { eval(it.second).pctCorrect() to it.first }
-                val accuraciesBySize = datasetsEvals.groupBy { it.second }
-                val avgAccuraciesBySize = accuraciesBySize.mapValues { it.value.asSequence().map { it.first }.average() }
-                val accuracyTable = avgAccuraciesBySize.entries.joinToString(separator = "\n") {
-                    "${it.key},${it.value}"
-                }
-                """
-                |+++ Evaluating convergence with $description +++
-                |subset_size,avg_pct_correct""".trimMargin().trim() + "\n" + accuracyTable
-
-            } else {
-                val evaled = eval(fullDataset)
-                """
-            |+++ TRAINING $description +++
-            |=== Results of $description ===
-            |${evaled.toSummaryString("", false)}
-            |=== Confusion Matrix of $description ===
-            |${evaled.toMatrixString("")}
-            |""".trimMargin()
-            }
+            resultsByModel[description] =
+                    if (validateMode is ValidateMode.PerUserCrossValidation) {
+                        users
+                                .map { user ->
+                                    val filteredData = Instances(fullDataset).apply {
+                                        for (i in indices.reversed()) {
+                                            val instanceUser = userByInstance[Arrays.hashCode(this[i].numericalValues())]
+                                            if (instanceUser == user) {
+                                                removeAt(i)
+                                            }
+                                        }
+                                    }
+                                    val userData = Instances(fullDataset).apply {
+                                        for (i in indices.reversed()) {
+                                            val instanceUser = userByInstance[Arrays.hashCode(this[i].numericalValues())]
+                                            if (instanceUser != user) {
+                                                removeAt(i)
+                                            }
+                                        }
+                                    }
+                                    model.buildClassifier(filteredData)
+                                    user to Evaluation(filteredData).apply {
+                                        evaluateModel(model, userData)
+                                    }
+                                }
+                                .map { userToEvaled ->
+                                    """
+                                |+++ TRAINING $description for user ${userToEvaled.first} +++
+                                |=== Results of $description ===
+                                |${userToEvaled.second.toSummaryString("", false)}
+                                |=== Confusion Matrix of $description ===
+                                |${userToEvaled.second.toMatrixString("")}
+                                |""".trimMargin()
+                                }
+                                .joinToString(separator = "\n")
+                    } else if (validateMode.evalConvergence) {
+                        val reducedDatasets = fullDataset.generateSubsets(users, userByInstance,
+                                howManyMaxPerSize = 10, random = random)
+                        val datasetsEvals = reducedDatasets.map { eval(it.second, validateMode).pctCorrect() to it.first }
+                        val accuraciesBySize = datasetsEvals.groupBy { it.second }
+                        val avgAccuraciesBySize = accuraciesBySize.mapValues { it.value.asSequence().map { it.first }.average() }
+                        val accuracyTable = avgAccuraciesBySize.entries.joinToString(separator = "\n") {
+                            "${it.key},${it.value}"
+                        }
+                        """
+                        |+++ Evaluating convergence with $description +++
+                        |subset_size,avg_pct_correct""".trimMargin().trim() + "\n" + accuracyTable
+                    } else {
+                        val evaled = eval(fullDataset, validateMode)
+                        """
+                        |+++ TRAINING $description +++
+                        |=== Results of $description ===
+                        |${evaled.toSummaryString("", false)}
+                        |=== Confusion Matrix of $description ===
+                        |${evaled.toMatrixString("")}
+                        |""".trimMargin()
+                    }
         }
     }
     threads.forEach(Thread::join)
