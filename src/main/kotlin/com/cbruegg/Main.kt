@@ -28,7 +28,10 @@ sealed class ValidateMode(val useFeatureSelection: Boolean, val classifierMode: 
     class UserCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: ClassifierMode, evalConvergence: Boolean) :
             ValidateMode(useFeatureSelection, useAllClassifiers, evalConvergence)
 
-    class PerUserCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: ClassifierMode, evalConvergence: Boolean) :
+    class PerUserCrossValidation(useFeatureSelection: Boolean,
+                                 useAllClassifiers: ClassifierMode,
+                                 evalConvergence: Boolean,
+                                 val personal: Boolean) :
             ValidateMode(useFeatureSelection, useAllClassifiers, evalConvergence)
 
     class PersonalRandomCrossValidation(useFeatureSelection: Boolean, useAllClassifiers: ClassifierMode, evalConvergence: Boolean) :
@@ -40,7 +43,7 @@ private const val FLAG_USE_FEATURE_SELECTION = "--feature-selection"
 private const val FLAG_USE_ALL_CLASSIFIERS = "--use-all-classifiers"
 private const val FLAG_VARY_RF_PARAMS = "--vary-rf-params"
 private const val FLAG_PERSONAL_MODEL = "--personal"
-private const val FLAG_EVAL_IMPERSONAL_PER_USER = "--eval-impersonal-per-user"
+private const val FLAG_EVAL_PER_USER = "--eval-per-user"
 private const val FLAG_ACCURACY_CONVERGENCE = "--eval-convergence"
 private val random = Random(0)
 
@@ -53,7 +56,7 @@ fun main(args: Array<String>) {
         println("$FLAG_PERSONAL_MODEL will perform cross-validation on models for one user only. Cannot be used in conjunction with $FLAG_RANDOM_CROSS_VALIDATION")
         println("$FLAG_VARY_RF_PARAMS will use multiple RF models and vary their parameters. Cannot be used in conjunction with $FLAG_USE_ALL_CLASSIFIERS")
         println("$FLAG_ACCURACY_CONVERGENCE will evaluate the model with 1 to N users.")
-        println("$FLAG_EVAL_IMPERSONAL_PER_USER will evaluate an impersonal model for each user and print its results.")
+        println("$FLAG_EVAL_PER_USER will evaluate a model for each user and print its results.")
         return
     }
 
@@ -62,20 +65,22 @@ fun main(args: Array<String>) {
     val useAllClassifiers = FLAG_USE_ALL_CLASSIFIERS in args
     val varyRfParams = FLAG_VARY_RF_PARAMS in args
     val evalConvergence = FLAG_ACCURACY_CONVERGENCE in args
-    val evalImpersonalPerUser = FLAG_EVAL_IMPERSONAL_PER_USER in args
+    val evalPerUser = FLAG_EVAL_PER_USER in args
+    val personal = FLAG_PERSONAL_MODEL in args
     val classifierMode =
             if (useAllClassifiers) ClassifierMode.ALL
             else if (varyRfParams) ClassifierMode.MULTIPLE_RF
             else ClassifierMode.RF
 
     val validateMode =
-            if (evalImpersonalPerUser) {
-                ValidateMode.PerUserCrossValidation(useFeatureSelection, classifierMode, evalConvergence)
+            if (evalPerUser) {
+                ValidateMode.PerUserCrossValidation(useFeatureSelection, classifierMode, evalConvergence, personal)
             } else if (FLAG_RANDOM_CROSS_VALIDATION in args) {
                 ValidateMode.RandomCrossValidation(useFeatureSelection, classifierMode, evalConvergence)
-            } else if (FLAG_PERSONAL_MODEL in args) {
+            } else if (personal) {
                 ValidateMode.PersonalRandomCrossValidation(useFeatureSelection, classifierMode, evalConvergence)
             } else ValidateMode.UserCrossValidation(useFeatureSelection, classifierMode, evalConvergence)
+
 
     if (input.isDirectory) {
         val results = Collections.synchronizedMap(mutableMapOf<File, String>())
@@ -123,7 +128,7 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
                     is ValidateMode.PersonalRandomCrossValidation -> {
                         Evaluation(data).apply {
                             for (user in users) {
-                                val filteredData = Instances(data).apply {
+                                val dataFromUser = Instances(data).apply {
                                     for (i in indices.reversed()) {
                                         val instanceUser = userByInstance[Arrays.hashCode(this[i].numericalValues())]
                                         if (instanceUser != user) {
@@ -131,8 +136,8 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
                                         }
                                     }
                                 }
-                                model.buildClassifier(filteredData)
-                                crossValidateModel(model, filteredData, 10, Random(1))
+                                model.buildClassifier(dataFromUser)
+                                crossValidateModel(model, dataFromUser, 10, Random(1))
                             }
                         }
                     }
@@ -166,9 +171,10 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
 
             resultsByModel[description] =
                     if (validateMode is ValidateMode.PerUserCrossValidation) {
+                        val personal = validateMode.personal
                         users
                                 .map { user ->
-                                    val filteredData = Instances(fullDataset).apply {
+                                    val dataWithoutUser = Instances(fullDataset).apply {
                                         for (i in indices.reversed()) {
                                             val instanceUser = userByInstance[Arrays.hashCode(this[i].numericalValues())]
                                             if (instanceUser == user) {
@@ -176,7 +182,7 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
                                             }
                                         }
                                     }
-                                    val userData = Instances(fullDataset).apply {
+                                    val dataFromUser = Instances(fullDataset).apply {
                                         for (i in indices.reversed()) {
                                             val instanceUser = userByInstance[Arrays.hashCode(this[i].numericalValues())]
                                             if (instanceUser != user) {
@@ -184,10 +190,19 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
                                             }
                                         }
                                     }
-                                    model.buildClassifier(filteredData)
-                                    user to Evaluation(filteredData).apply {
-                                        evaluateModel(model, userData)
+
+                                    val eval = if (personal) {
+                                        Evaluation(dataFromUser).apply {
+                                            crossValidateModel(model, dataFromUser, 10, Random(1))
+                                        }
+                                    } else {
+                                        model.buildClassifier(dataWithoutUser)
+                                        Evaluation(dataWithoutUser).apply {
+                                            evaluateModel(model, dataFromUser)
+                                        }
                                     }
+
+                                    user to eval
                                 }
                                 .map { userToEvaled ->
                                     """
