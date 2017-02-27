@@ -45,6 +45,7 @@ private const val FLAG_VARY_RF_PARAMS = "--vary-rf-params"
 private const val FLAG_PERSONAL_MODEL = "--personal"
 private const val FLAG_EVAL_PER_USER = "--eval-per-user"
 private const val FLAG_ACCURACY_CONVERGENCE = "--eval-convergence"
+private const val FLAG_PREDICT_USER = "--predict-user"
 private val random = Random(0)
 
 fun main(args: Array<String>) {
@@ -57,6 +58,7 @@ fun main(args: Array<String>) {
         println("$FLAG_VARY_RF_PARAMS will use multiple RF models and vary their parameters. Cannot be used in conjunction with $FLAG_USE_ALL_CLASSIFIERS")
         println("$FLAG_ACCURACY_CONVERGENCE will evaluate the model with 1 to N users.")
         println("$FLAG_EVAL_PER_USER will evaluate a model for each user and print its results.")
+        println("$FLAG_PREDICT_USER will cross-validate RF-models predicting the username. Can only be used with a trainingset file, not multiple files in a directory.")
         return
     }
 
@@ -71,6 +73,17 @@ fun main(args: Array<String>) {
             if (useAllClassifiers) ClassifierMode.ALL
             else if (varyRfParams) ClassifierMode.MULTIPLE_RF
             else ClassifierMode.RF
+
+    if (FLAG_PREDICT_USER in args) {
+        if (input.isDirectory) {
+            input.listFiles()
+                    .forEach(::evaluateUserPrediction)
+        } else {
+            evaluateUserPrediction(input)
+        }
+
+        return
+    }
 
     val validateMode =
             if (evalPerUser) {
@@ -103,6 +116,26 @@ fun Classifier.toAttributeSelectedClassifier() = AttributeSelectedClassifier().a
     search = GreedyStepwise().apply {
         searchBackwards = true
     }
+}
+
+private fun evaluateUserPrediction(file: File) {
+    val fullDataset = loadDataFromFile(file, classAttr = "username")
+    fullDataset.deleteAttributeAt(fullDataset.attribute("sampleClass").index())
+
+    val model = RandomForest().apply {
+        numIterations = 50
+        numFeatures = 10 // -K 10 (Number of attributes to randomly investigate)
+        maxDepth = 25
+    }
+
+    val eval = Evaluation(fullDataset).apply {
+        crossValidateModel(model, fullDataset, 10, Random(1))
+    }
+
+    println("=== Results of username prediction with file $file ===")
+    println(eval.toSummaryString("", false))
+    println("=== Confusion Matrix ===")
+    println(eval.toMatrixString(""))
 }
 
 private fun Instances.extractUsers(): List<String> = map { it.stringValue(attribute("username")) }.distinct()
@@ -206,12 +239,12 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
                                 }
                                 .map { userToEvaled ->
                                     """
-                                |+++ TRAINING $description for user ${userToEvaled.first} +++
-                                |=== Results of $description ===
-                                |${userToEvaled.second.toSummaryString("", false)}
-                                |=== Confusion Matrix of $description ===
-                                |${userToEvaled.second.toMatrixString("")}
-                                |""".trimMargin()
+|+++ TRAINING $description for user ${userToEvaled.first} +++
+|=== Results of $description ===
+|${userToEvaled.second.toSummaryString("", false)}
+|=== Confusion Matrix of $description ===
+|${userToEvaled.second.toMatrixString("")}
+|""".trimMargin()
                                 }
                                 .joinToString(separator = "\n")
                     } else if (validateMode.evalConvergence) {
@@ -224,17 +257,17 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
                             "${it.key},${it.value}"
                         }
                         """
-                        |+++ Evaluating convergence with $description +++
-                        |subset_size,avg_pct_correct""".trimMargin().trim() + "\n" + accuracyTable
+|+++ Evaluating convergence with $description +++
+|subset_size,avg_pct_correct""".trimMargin().trim() + "\n" + accuracyTable
                     } else {
                         val evaled = eval(fullDataset, validateMode)
                         """
-                        |+++ TRAINING $description +++
-                        |=== Results of $description ===
-                        |${evaled.toSummaryString("", false)}
-                        |=== Confusion Matrix of $description ===
-                        |${evaled.toMatrixString("")}
-                        |""".trimMargin()
+|+++ TRAINING $description +++
+|=== Results of $description ===
+|${evaled.toSummaryString("", false)}
+|=== Confusion Matrix of $description ===
+|${evaled.toMatrixString("")}
+|""".trimMargin()
                     }
         }
     }
