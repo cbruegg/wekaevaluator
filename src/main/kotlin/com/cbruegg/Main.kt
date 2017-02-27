@@ -77,6 +77,7 @@ fun main(args: Array<String>) {
     if (FLAG_PREDICT_USER in args) {
         if (input.isDirectory) {
             input.listFiles()
+                    .filter { it.absolutePath.endsWith(".csv") }
                     .forEach(::evaluateUserPrediction)
         } else {
             evaluateUserPrediction(input)
