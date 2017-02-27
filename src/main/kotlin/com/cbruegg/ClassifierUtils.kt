@@ -1,9 +1,12 @@
 package com.cbruegg
 
+import weka.attributeSelection.CfsSubsetEval
+import weka.attributeSelection.GreedyStepwise
 import weka.classifiers.Classifier
 import weka.classifiers.bayes.NaiveBayes
 import weka.classifiers.functions.MultilayerPerceptron
 import weka.classifiers.lazy.IBk
+import weka.classifiers.meta.AttributeSelectedClassifier
 import weka.classifiers.trees.J48
 import weka.classifiers.trees.RandomForest
 
@@ -78,5 +81,16 @@ fun classifiers(classifierMode: ClassifierMode): List<Pair<String, Classifier>> 
         ClassifierMode.RF -> all.filter { it.first == "RF" }
         ClassifierMode.MULTIPLE_RF -> rfs
         ClassifierMode.ALL -> all
+    }
+}
+
+/**
+ * Make this classifier a classifier with initial feature selection.
+ */
+fun Classifier.toAttributeSelectedClassifier() = AttributeSelectedClassifier().apply {
+    classifier = this@toAttributeSelectedClassifier
+    evaluator = CfsSubsetEval()
+    search = GreedyStepwise().apply {
+        searchBackwards = true
     }
 }

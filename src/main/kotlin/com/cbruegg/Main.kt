@@ -1,10 +1,7 @@
 package com.cbruegg
 
-import weka.attributeSelection.CfsSubsetEval
-import weka.attributeSelection.GreedyStepwise
 import weka.classifiers.Classifier
 import weka.classifiers.Evaluation
-import weka.classifiers.meta.AttributeSelectedClassifier
 import weka.classifiers.trees.RandomForest
 import weka.core.Instances
 import java.io.File
@@ -96,17 +93,6 @@ fun main(args: Array<String>) {
         results.entries.sortedBy { it.key.path }.map { it.value }.forEach(::println)
     } else {
         println(evaluate(input, validateMode))
-    }
-}
-
-/**
- * Make this classifier a classifier with initial feature selection.
- */
-fun Classifier.toAttributeSelectedClassifier() = AttributeSelectedClassifier().apply {
-    classifier = this@toAttributeSelectedClassifier
-    evaluator = CfsSubsetEval()
-    search = GreedyStepwise().apply {
-        searchBackwards = true
     }
 }
 
@@ -222,6 +208,10 @@ private fun evaluate(input: File, validateMode: ValidateMode): String {
     }.joinToString(separator = "", prefix = "Now evaluating file $input.\n")
 }
 
+/**
+ * Perform an isolated cross validation for each user and
+ * print results for each user.
+ */
 private fun performPerUserCrossValidation(description: String,
                                           fullDataset: Instances,
                                           classifier: Classifier,
